@@ -74,7 +74,7 @@ func main() {
 	})
 
 	// Healthcheck endpoint — fails during startup and when toggled
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	healthzHandler := func(w http.ResponseWriter, r *http.Request) {
 		if !ready.Load() {
 			shared.JSON(w, http.StatusServiceUnavailable, shared.Response{
 				Service: "api",
@@ -98,7 +98,9 @@ func main() {
 			Status:  "healthy",
 			Port:    port,
 		})
-	})
+	}
+	mux.HandleFunc("GET /healthz", healthzHandler)
+	mux.HandleFunc("POST /healthz", healthzHandler)
 
 	// POST /healthz/fail — make healthcheck start failing (triggers liveness probe restart)
 	mux.HandleFunc("POST /healthz/fail", func(w http.ResponseWriter, r *http.Request) {

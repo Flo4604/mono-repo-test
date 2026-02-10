@@ -74,7 +74,7 @@ func main() {
 	})
 
 	// Healthcheck endpoint — fails during startup and when toggled
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if !ready.Load() {
 			shared.JSON(w, http.StatusServiceUnavailable, shared.Response{
 				Service: "api",

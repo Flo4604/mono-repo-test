@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -140,6 +143,23 @@ func main() {
 			Port:    port,
 			Message: fmt.Sprintf("slow request completed after %s", duration),
 		})
+	})
+
+	// GET /env — dump all environment variables as pretty JSON
+	mux.HandleFunc("GET /env", func(w http.ResponseWriter, r *http.Request) {
+		envs := os.Environ()
+		sort.Strings(envs)
+
+		vars := make(map[string]string, len(envs))
+		for _, e := range envs {
+			k, v, _ := strings.Cut(e, "=")
+			vars[k] = v
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		enc.Encode(vars)
 	})
 
 	log.Printf("api: listening on :%s", port)

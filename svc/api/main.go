@@ -145,6 +145,50 @@ func main() {
 		})
 	})
 
+	// GET /protected — requires X-Unkey-Principal header from sentinel KeyAuth
+	mux.HandleFunc("GET /protected", func(w http.ResponseWriter, r *http.Request) {
+		inflight.Add(1)
+		defer inflight.Add(-1)
+
+		principal := r.Header.Get("X-Unkey-Principal")
+		if principal == "" {
+			log.Println("api: GET /protected — no X-Unkey-Principal header")
+			shared.JSON(w, http.StatusUnauthorized, shared.Response{
+				Service: "api",
+				Status:  "unauthorized",
+				Port:    port,
+				Message: "missing X-Unkey-Principal header — sentinel middleware not configured?",
+			})
+			return
+		}
+
+		log.Printf("api: GET /protected — principal: %s", principal)
+
+		// Parse and echo back the principal
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(principal), &parsed); err != nil {
+			log.Printf("api: GET /protected — failed to parse principal JSON: %v", err)
+			shared.JSON(w, http.StatusOK, shared.Response{
+				Service: "api",
+				Status:  "ok",
+				Port:    port,
+				Message: fmt.Sprintf("principal (raw): %s", principal),
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		enc.Encode(map[string]any{
+			"service":   "api",
+			"status":    "authenticated",
+			"port":      port,
+			"principal": parsed,
+		})
+	})
+
 	// GET /env — dump all environment variables as pretty JSON
 	mux.HandleFunc("GET /env", func(w http.ResponseWriter, r *http.Request) {
 		envs := os.Environ()

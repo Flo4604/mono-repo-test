@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -108,6 +109,45 @@ func main() {
 			Status:  "ok",
 			Port:    port,
 			Message: "background worker running",
+		})
+	})
+
+	// GET /probe — try to reach the API service to test network isolation.
+	// Set API_URL env var to the api's internal address.
+	// If apps are properly isolated, this should fail (connection refused / timeout).
+	mux.HandleFunc("GET /probe", func(w http.ResponseWriter, r *http.Request) {
+		apiURL := os.Getenv("API_URL")
+		if apiURL == "" {
+			shared.JSON(w, http.StatusOK, shared.Response{
+				Service: "worker",
+				Status:  "skipped",
+				Port:    port,
+				Message: "API_URL not set — set it to the api's internal address to test network isolation",
+			})
+			return
+		}
+
+		log.Printf("worker: probing api at %s", apiURL)
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Get(apiURL + "/healthz")
+		if err != nil {
+			log.Printf("worker: probe FAILED (network isolation working): %v", err)
+			shared.JSON(w, http.StatusOK, shared.Response{
+				Service: "worker",
+				Status:  "isolated",
+				Port:    port,
+				Message: fmt.Sprintf("cannot reach api at %s: %v — network isolation is working", apiURL, err),
+			})
+			return
+		}
+		defer resp.Body.Close()
+
+		log.Printf("worker: probe SUCCEEDED (network isolation BROKEN): status %d", resp.StatusCode)
+		shared.JSON(w, http.StatusOK, shared.Response{
+			Service: "worker",
+			Status:  "NOT_ISOLATED",
+			Port:    port,
+			Message: fmt.Sprintf("reached api at %s — got HTTP %d — network isolation is BROKEN", apiURL, resp.StatusCode),
 		})
 	})
 

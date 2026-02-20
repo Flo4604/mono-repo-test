@@ -206,6 +206,45 @@ func main() {
 		enc.Encode(vars)
 	})
 
+	// GET /probe — try to reach the worker service to test network isolation.
+	// Set WORKER_URL env var to the worker's internal address.
+	// If apps are properly isolated, this should fail (connection refused / timeout).
+	mux.HandleFunc("GET /probe", func(w http.ResponseWriter, r *http.Request) {
+		workerURL := os.Getenv("WORKER_URL")
+		if workerURL == "" {
+			shared.JSON(w, http.StatusOK, shared.Response{
+				Service: "api",
+				Status:  "skipped",
+				Port:    port,
+				Message: "WORKER_URL not set — set it to the worker's internal address to test network isolation",
+			})
+			return
+		}
+
+		log.Printf("api: probing worker at %s", workerURL)
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Get(workerURL + "/healthz")
+		if err != nil {
+			log.Printf("api: probe FAILED (network isolation working): %v", err)
+			shared.JSON(w, http.StatusOK, shared.Response{
+				Service: "api",
+				Status:  "isolated",
+				Port:    port,
+				Message: fmt.Sprintf("cannot reach worker at %s: %v — network isolation is working", workerURL, err),
+			})
+			return
+		}
+		defer resp.Body.Close()
+
+		log.Printf("api: probe SUCCEEDED (network isolation BROKEN): status %d", resp.StatusCode)
+		shared.JSON(w, http.StatusOK, shared.Response{
+			Service: "api",
+			Status:  "NOT_ISOLATED",
+			Port:    port,
+			Message: fmt.Sprintf("reached worker at %s — got HTTP %d — network isolation is BROKEN", workerURL, resp.StatusCode),
+		})
+	})
+
 	log.Printf("api: listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatal(err)

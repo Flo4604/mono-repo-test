@@ -4,8 +4,7 @@ WORKDIR /app
 
 COPY . .
 
-ARG SERVICE=api
-RUN CGO_ENABLED=0 go build -o /service ./svc/${SERVICE}
+RUN CGO_ENABLED=0 go build -o /service .
 
 FROM alpine:3.21
 

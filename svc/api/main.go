@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"encoding/json"
@@ -17,7 +17,7 @@ import (
 	"github.com/unkeyed/mono-repo-test/pkg/shared"
 )
 
-func main() {
+func Run() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "3456"

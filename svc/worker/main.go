@@ -1,4 +1,4 @@
-package main
+package worker
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ import (
 	"github.com/unkeyed/mono-repo-test/pkg/shared"
 )
 
-func main() {
+func Run() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "9090"

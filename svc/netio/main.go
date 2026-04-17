@@ -34,13 +34,12 @@ import (
 	"github.com/unkeyed/mono-repo-test/pkg/shared"
 )
 
-// ThinkBroadband (UK ISP) hosts speedtest files at predictable URLs and
-// has done so reliably for ~20 years. Their 1GB.zip supports Range, so
-// we can grab any number of bytes from 1 to 1 GiB in one fetch with no
-// size mapping. Plain HTTP not HTTPS; doesn't matter — heimdall counts
-// at L4 so encrypted vs cleartext is the same wire byte count.
+// Hetzner Ashburn speedtest endpoint. The 1GB.bin file supports Range so
+// we can grab any number of bytes from 1 to 1 GiB in one fetch. Switch
+// to a different region (fsn1, nbg1, hel1, sin, hil) by overriding via
+// ?url= if Ashburn is slow from where the pod runs.
 const (
-	publicURL    = "http://ipv4.download.thinkbroadband.com/1GB.zip"
+	publicURL    = "https://ash-speed.hetzner.com/1GB.bin"
 	publicMaxMiB = 1024
 )
 

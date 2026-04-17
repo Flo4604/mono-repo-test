@@ -27,7 +27,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -35,30 +34,31 @@ import (
 	"github.com/unkeyed/mono-repo-test/pkg/shared"
 )
 
-// Hetzner publishes fixed-size speed-test files at predictable URLs with
-// no rate limit and no cap. We pick the smallest one that satisfies the
-// requested mb. httpbin caps at 100 KiB; Cloudflare's /__down 403's on
-// anything sizable. Hetzner Just Works.
-var hetznerSizes = []struct {
+// OVH publishes fixed-size speed-test files at predictable URLs with no
+// rate limit and no cap. They've hosted these for 15+ years; reliability
+// has been excellent. Sizes available: 1Mb, 10Mb, 100Mb, 1Gb, 10Gb.
+// (Their lowercase "Mb" is bytes, not bits, despite the name.)
+var publicSizes = []struct {
 	mb  int
 	url string
 }{
-	{1, "https://speed.hetzner.de/1MB.bin"},
-	{10, "https://speed.hetzner.de/10MB.bin"},
-	{100, "https://speed.hetzner.de/100MB.bin"},
-	{1024, "https://speed.hetzner.de/1GB.bin"},
+	{1, "https://proof.ovh.net/files/1Mb.dat"},
+	{10, "https://proof.ovh.net/files/10Mb.dat"},
+	{100, "https://proof.ovh.net/files/100Mb.dat"},
+	{1024, "https://proof.ovh.net/files/1Gb.dat"},
+	{10240, "https://proof.ovh.net/files/10Gb.dat"},
 }
 
 // pickPublicURL returns the URL whose declared size is the smallest one
-// >= the requested mb. Larger requests download the largest available
-// (1 GB) and the response reports what was actually pulled.
+// >= the requested mb. Larger requests fall through to the biggest file
+// (10 GB); the response reports what was actually pulled.
 func pickPublicURL(mb int) string {
-	for _, s := range hetznerSizes {
+	for _, s := range publicSizes {
 		if s.mb >= mb {
 			return s.url
 		}
 	}
-	return hetznerSizes[len(hetznerSizes)-1].url
+	return publicSizes[len(publicSizes)-1].url
 }
 
 // Default in-cluster destination when /net/private is called without a host.
@@ -154,7 +154,7 @@ func main() {
 				host,
 				os.Getenv("UNKEY_INSTANCE_ID"),
 				os.Getenv("UNKEY_REGION"),
-				defaultPublicURL,
+				"https://proof.ovh.net/files/{1Mb,10Mb,100Mb,1Gb,10Gb}.dat",
 				defaultPrivateHost, defaultPrivatePath,
 			),
 		})
@@ -167,24 +167,13 @@ func main() {
 		inflight.Add(1)
 		defer inflight.Add(-1)
 		mb := parseMB(r, 5)
-		urlBase := r.URL.Query().Get("url")
-		if urlBase == "" {
-			urlBase = defaultPublicURL
-		}
-		// Cloudflare uses ?bytes=N; everything else (httpbin, etc.) uses
-		// /bytes/N. Heuristic: if the URL already has a query string OR
-		// it's the Cloudflare endpoint, append ?bytes=N. Otherwise treat
-		// it as a path-style sized download.
-		bytes := mb * 1024 * 1024
-		var url string
-		if urlBase == defaultPublicURL || strings.Contains(urlBase, "?") {
-			sep := "?"
-			if strings.Contains(urlBase, "?") {
-				sep = "&"
-			}
-			url = fmt.Sprintf("%s%sbytes=%d", urlBase, sep, bytes)
-		} else {
-			url = fmt.Sprintf("%s/%d", urlBase, bytes)
+		// ?url= overrides the default OVH file. If the override URL
+		// implies a fixed size (e.g. someone passes a specific Hetzner
+		// file) we respect it as-is; otherwise we pick the smallest OVH
+		// file >= the requested mb.
+		url := r.URL.Query().Get("url")
+		if url == "" {
+			url = pickPublicURL(mb)
 		}
 
 		log.Printf("netio: GET %s", url)

@@ -178,19 +178,34 @@ func main() {
 			return
 		}
 		defer resp.Body.Close()
+		// Bail loudly on non-2xx so we don't silently count tiny error
+		// bodies as "successful download". 206 Partial Content is the
+		// normal Range response.
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			shared.JSON(w, http.StatusBadGateway, shared.Response{
+				Service: "netio", Status: "error", Port: port,
+				Message: fmt.Sprintf("upstream returned %d (Content-Length=%s, Content-Type=%s) body=%q",
+					resp.StatusCode, resp.Header.Get("Content-Length"), resp.Header.Get("Content-Type"), string(body)),
+			})
+			return
+		}
 		n, err := io.Copy(io.Discard, resp.Body)
 		dur := time.Since(start)
 		if err != nil {
 			shared.JSON(w, http.StatusOK, shared.Response{
 				Service: "netio", Status: "partial", Port: port,
-				Message: fmt.Sprintf("read %d bytes in %s before error: %v", n, dur, err),
+				Message: fmt.Sprintf("read %d bytes in %s before error: %v (status=%d cl=%s)",
+					n, dur, err, resp.StatusCode, resp.Header.Get("Content-Length")),
 			})
 			return
 		}
 		shared.JSON(w, http.StatusOK, shared.Response{
 			Service: "netio", Status: "ok", Port: port,
-			Message: fmt.Sprintf("downloaded %d bytes (%d MiB) from %s in %s (%.1f MiB/s)",
-				n, n/1024/1024, url, dur.Round(time.Millisecond), float64(n)/(1024*1024)/dur.Seconds()),
+			Message: fmt.Sprintf("downloaded %d bytes (%d MiB) from %s in %s (%.1f MiB/s) status=%d cl=%s",
+				n, n/1024/1024, url, dur.Round(time.Millisecond),
+				float64(n)/(1024*1024)/dur.Seconds(),
+				resp.StatusCode, resp.Header.Get("Content-Length")),
 		})
 	})
 

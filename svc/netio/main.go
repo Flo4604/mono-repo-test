@@ -34,32 +34,15 @@ import (
 	"github.com/unkeyed/mono-repo-test/pkg/shared"
 )
 
-// OVH publishes fixed-size speed-test files at predictable URLs with no
-// rate limit and no cap. They've hosted these for 15+ years; reliability
-// has been excellent. Sizes available: 1Mb, 10Mb, 100Mb, 1Gb, 10Gb.
-// (Their lowercase "Mb" is bytes, not bits, despite the name.)
-var publicSizes = []struct {
-	mb  int
-	url string
-}{
-	{1, "https://proof.ovh.net/files/1Mb.dat"},
-	{10, "https://proof.ovh.net/files/10Mb.dat"},
-	{100, "https://proof.ovh.net/files/100Mb.dat"},
-	{1024, "https://proof.ovh.net/files/1Gb.dat"},
-	{10240, "https://proof.ovh.net/files/10Gb.dat"},
-}
-
-// pickPublicURL returns the URL whose declared size is the smallest one
-// >= the requested mb. Larger requests fall through to the biggest file
-// (10 GB); the response reports what was actually pulled.
-func pickPublicURL(mb int) string {
-	for _, s := range publicSizes {
-		if s.mb >= mb {
-			return s.url
-		}
-	}
-	return publicSizes[len(publicSizes)-1].url
-}
+// ThinkBroadband (UK ISP) hosts speedtest files at predictable URLs and
+// has done so reliably for ~20 years. Their 1GB.zip supports Range, so
+// we can grab any number of bytes from 1 to 1 GiB in one fetch with no
+// size mapping. Plain HTTP not HTTPS; doesn't matter — heimdall counts
+// at L4 so encrypted vs cleartext is the same wire byte count.
+const (
+	publicURL    = "http://ipv4.download.thinkbroadband.com/1GB.zip"
+	publicMaxMiB = 1024
+)
 
 // Default in-cluster destination when /net/private is called without a host.
 // Krane's /health endpoint always returns ~30 bytes; the loop below makes
@@ -154,7 +137,7 @@ func main() {
 				host,
 				os.Getenv("UNKEY_INSTANCE_ID"),
 				os.Getenv("UNKEY_REGION"),
-				"https://proof.ovh.net/files/{1Mb,10Mb,100Mb,1Gb,10Gb}.dat",
+				publicURL,
 				defaultPrivateHost, defaultPrivatePath,
 			),
 		})
@@ -167,18 +150,25 @@ func main() {
 		inflight.Add(1)
 		defer inflight.Add(-1)
 		mb := parseMB(r, 5)
-		// ?url= overrides the default OVH file. If the override URL
-		// implies a fixed size (e.g. someone passes a specific Hetzner
-		// file) we respect it as-is; otherwise we pick the smallest OVH
-		// file >= the requested mb.
+		if mb > publicMaxMiB {
+			mb = publicMaxMiB
+		}
+		// ?url= overrides the default ThinkBroadband file. The override
+		// is taken as-is (no Range header) so callers can point at any
+		// arbitrary URL; the default path uses Range so we pull exactly
+		// the requested mb from the 1 GiB file.
 		url := r.URL.Query().Get("url")
+		useRange := url == ""
 		if url == "" {
-			url = pickPublicURL(mb)
+			url = publicURL
 		}
 
-		log.Printf("netio: GET %s", url)
+		log.Printf("netio: GET %s mb=%d range=%v", url, mb, useRange)
 		start := time.Now()
 		req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, url, nil)
+		if useRange {
+			req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", int64(mb)*1024*1024-1))
+		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			shared.JSON(w, http.StatusBadGateway, shared.Response{

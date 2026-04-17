@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -34,10 +35,11 @@ import (
 	"github.com/unkeyed/mono-repo-test/pkg/shared"
 )
 
-// Default upstream when /net/public is called without a URL. httpbin's
-// /bytes/N endpoint streams exactly N bytes back, perfect for predictable
-// egress + ingress accounting.
-const defaultPublicURL = "https://httpbin.org/bytes"
+// Default upstream when /net/public is called without a URL. Cloudflare's
+// speed-test endpoint accepts arbitrary byte counts via ?bytes=N. httpbin's
+// /bytes/N caps at 100 KiB regardless of what you ask for, so it's useless
+// for testing meaningful network volume.
+const defaultPublicURL = "https://speed.cloudflare.com/__down"
 
 // Default in-cluster destination when /net/private is called without a host.
 // Krane's /health endpoint always returns ~30 bytes; the loop below makes
@@ -149,7 +151,21 @@ func main() {
 		if urlBase == "" {
 			urlBase = defaultPublicURL
 		}
-		url := fmt.Sprintf("%s/%d", urlBase, mb*1024*1024)
+		// Cloudflare uses ?bytes=N; everything else (httpbin, etc.) uses
+		// /bytes/N. Heuristic: if the URL already has a query string OR
+		// it's the Cloudflare endpoint, append ?bytes=N. Otherwise treat
+		// it as a path-style sized download.
+		bytes := mb * 1024 * 1024
+		var url string
+		if urlBase == defaultPublicURL || strings.Contains(urlBase, "?") {
+			sep := "?"
+			if strings.Contains(urlBase, "?") {
+				sep = "&"
+			}
+			url = fmt.Sprintf("%s%sbytes=%d", urlBase, sep, bytes)
+		} else {
+			url = fmt.Sprintf("%s/%d", urlBase, bytes)
+		}
 
 		log.Printf("netio: GET %s", url)
 		start := time.Now()

@@ -35,11 +35,31 @@ import (
 	"github.com/unkeyed/mono-repo-test/pkg/shared"
 )
 
-// Default upstream when /net/public is called without a URL. Cloudflare's
-// speed-test endpoint accepts arbitrary byte counts via ?bytes=N. httpbin's
-// /bytes/N caps at 100 KiB regardless of what you ask for, so it's useless
-// for testing meaningful network volume.
-const defaultPublicURL = "https://speed.cloudflare.com/__down"
+// Hetzner publishes fixed-size speed-test files at predictable URLs with
+// no rate limit and no cap. We pick the smallest one that satisfies the
+// requested mb. httpbin caps at 100 KiB; Cloudflare's /__down 403's on
+// anything sizable. Hetzner Just Works.
+var hetznerSizes = []struct {
+	mb  int
+	url string
+}{
+	{1, "https://speed.hetzner.de/1MB.bin"},
+	{10, "https://speed.hetzner.de/10MB.bin"},
+	{100, "https://speed.hetzner.de/100MB.bin"},
+	{1024, "https://speed.hetzner.de/1GB.bin"},
+}
+
+// pickPublicURL returns the URL whose declared size is the smallest one
+// >= the requested mb. Larger requests download the largest available
+// (1 GB) and the response reports what was actually pulled.
+func pickPublicURL(mb int) string {
+	for _, s := range hetznerSizes {
+		if s.mb >= mb {
+			return s.url
+		}
+	}
+	return hetznerSizes[len(hetznerSizes)-1].url
+}
 
 // Default in-cluster destination when /net/private is called without a host.
 // Krane's /health endpoint always returns ~30 bytes; the loop below makes
